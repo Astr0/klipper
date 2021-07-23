@@ -39,6 +39,7 @@ def create_pty(ptyname):
         pass
     filename = os.ttyname(sfd)
     os.chmod(filename, 0o660)
+    os.chown(filename, -1, 5)
     os.symlink(filename, ptyname)
     set_nonblock(mfd)
     old = termios.tcgetattr(mfd)

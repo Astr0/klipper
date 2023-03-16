@@ -36,27 +36,52 @@ def lerp(t, v0, v1):
     return (1. - t) * v0 + t * v1
 
 # retreive commma separated pair from config
-def parse_pair(config, param, check=True, cast=float,
-               minval=None, maxval=None):
-    val = config.get(*param).strip().split(',', 1)
-    pair = tuple(cast(p.strip()) for p in val)
-    if check and len(pair) != 2:
-        raise config.error(
-            "bed_mesh: malformed '%s' value: %s"
-            % (param[0], config.get(*param)))
-    elif len(pair) == 1:
+def parse_config_pair(config, option, default, minval=None, maxval=None):
+    pair = config.getintlist(option, (default, default))
+    if len(pair) != 2:
+        if len(pair) != 1:
+            raise config.error("bed_mesh: malformed '%s' value: %s"
+                               % (option, config.get(option)))
         pair = (pair[0], pair[0])
     if minval is not None:
         if pair[0] < minval or pair[1] < minval:
             raise config.error(
                 "Option '%s' in section bed_mesh must have a minimum of %s"
-                % (param[0], str(minval)))
+                % (option, str(minval)))
     if maxval is not None:
         if pair[0] > maxval or pair[1] > maxval:
             raise config.error(
                 "Option '%s' in section bed_mesh must have a maximum of %s"
-                % (param[0], str(maxval)))
+                % (option, str(maxval)))
     return pair
+
+# retreive commma separated pair from a g-code command
+def parse_gcmd_pair(gcmd, name, minval=None, maxval=None):
+    try:
+        pair = [int(v.strip()) for v in gcmd.get(name).split(',')]
+    except:
+        raise gcmd.error("Unable to parse parameter '%s'" % (name,))
+    if len(pair) != 2:
+        if len(pair) != 1:
+            raise gcmd.error("Unable to parse parameter '%s'" % (name,))
+        pair = (pair[0], pair[0])
+    if minval is not None:
+        if pair[0] < minval or pair[1] < minval:
+            raise gcmd.error("Parameter '%s' must have a minimum of %d"
+                             % (name, minval))
+    if maxval is not None:
+        if pair[0] > maxval or pair[1] > maxval:
+            raise gcmd.error("Parameter '%s' must have a maximum of %d"
+                             % (name, maxval))
+    return pair
+
+# retreive commma separated coordinate from a g-code command
+def parse_gcmd_coord(gcmd, name):
+    try:
+        v1, v2 = [float(v.strip()) for v in gcmd.get(name).split(',')]
+    except:
+        raise gcmd.error("Unable to parse parameter '%s'" % (name,))
+    return v1, v2
 
 
 class BedMesh:
@@ -99,10 +124,11 @@ class BedMesh:
         # Register transform
         gcode_move = self.printer.load_object(config, 'gcode_move')
         gcode_move.set_move_transform(self)
+        # initialize status dict
+        self.update_status()
     def handle_connect(self):
         self.toolhead = self.printer.lookup_object('toolhead')
         self.bmc.print_generated_points(logging.info)
-        self.pmgr.initialize()
     def set_mesh(self, mesh):
         if mesh is not None and self.fade_end != self.FADE_DISABLE:
             self.log_fade_complete = True
@@ -137,6 +163,7 @@ class BedMesh:
         # cache the current position before a transform takes place
         gcode_move = self.printer.lookup_object('gcode_move')
         gcode_move.reset_last_position()
+        self.update_status()
     def get_z_factor(self, z_pos):
         if z_pos >= self.fade_end:
             return 0.
@@ -191,12 +218,15 @@ class BedMesh:
                         "Mesh Leveling: Error splitting move ")
         self.last_position[:] = newpos
     def get_status(self, eventtime=None):
-        status = {
+        return self.status
+    def update_status(self):
+        self.status = {
             "profile_name": "",
             "mesh_min": (0., 0.),
             "mesh_max": (0., 0.),
             "probed_matrix": [[]],
-            "mesh_matrix": [[]]
+            "mesh_matrix": [[]],
+            "profiles": self.pmgr.get_profiles()
         }
         if self.z_mesh is not None:
             params = self.z_mesh.get_mesh_params()
@@ -204,12 +234,11 @@ class BedMesh:
             mesh_max = (params['max_x'], params['max_y'])
             probed_matrix = self.z_mesh.get_probed_matrix()
             mesh_matrix = self.z_mesh.get_mesh_matrix()
-            status['profile_name'] = self.pmgr.get_current_profile()
-            status['mesh_min'] = mesh_min
-            status['mesh_max'] = mesh_max
-            status['probed_matrix'] = probed_matrix
-            status['mesh_matrix'] = mesh_matrix
-        return status
+            self.status['profile_name'] = self.pmgr.get_current_profile()
+            self.status['mesh_min'] = mesh_min
+            self.status['mesh_max'] = mesh_max
+            self.status['probed_matrix'] = probed_matrix
+            self.status['mesh_matrix'] = mesh_matrix
     def get_mesh(self):
         return self.z_mesh
     cmd_BED_MESH_OUTPUT_help = "Retrieve interpolated grid of probed z-points"
@@ -265,6 +294,7 @@ class BedMeshCalibrate:
         self.mesh_config = collections.OrderedDict()
         self._init_mesh_config(config)
         self._generate_points(config.error)
+        self._profile_name = None
         self.orig_points = self.points
         self.probe_helper = probe.ProbePointsHelper(
             config, self.probe_finalize, self._get_adjusted_points())
@@ -284,13 +314,13 @@ class BedMeshCalibrate:
         # floor distances down to next hundredth
         x_dist = math.floor(x_dist * 100) / 100
         y_dist = math.floor(y_dist * 100) / 100
-        if x_dist <= 1. or y_dist <= 1.:
+        if x_dist < 1. or y_dist < 1.:
             raise error("bed_mesh: min/max points too close together")
 
         if self.radius is not None:
             # round bed, min/max needs to be recalculated
             y_dist = x_dist
-            new_r = (x_cnt / 2) * x_dist
+            new_r = (x_cnt // 2) * x_dist
             min_x = min_y = -new_r
             max_x = max_y = new_r
         else:
@@ -384,7 +414,7 @@ class BedMeshCalibrate:
         orig_cfg = self.orig_config
         self.radius = config.getfloat('mesh_radius', None, above=0.)
         if self.radius is not None:
-            self.origin = parse_pair(config, ('mesh_origin', "0, 0"))
+            self.origin = config.getfloatlist('mesh_origin', (0., 0.), count=2)
             x_cnt = y_cnt = config.getint('round_probe_count', 5, minval=3)
             # round beds must have an odd number of points along each axis
             if not x_cnt & 1:
@@ -398,10 +428,9 @@ class BedMeshCalibrate:
             max_x = max_y = self.radius
         else:
             # rectangular
-            x_cnt, y_cnt = parse_pair(
-                config, ('probe_count', '3'), check=False, cast=int, minval=3)
-            min_x, min_y = parse_pair(config, ('mesh_min',))
-            max_x, max_y = parse_pair(config, ('mesh_max',))
+            x_cnt, y_cnt = parse_config_pair(config, 'probe_count', 3, minval=3)
+            min_x, min_y = config.getfloatlist('mesh_min', count=2)
+            max_x, max_y = config.getfloatlist('mesh_max', count=2)
             if max_x <= min_x or max_y <= min_y:
                 raise config.error('bed_mesh: invalid min/max points')
         orig_cfg['x_count'] = mesh_cfg['x_count'] = x_cnt
@@ -409,8 +438,7 @@ class BedMeshCalibrate:
         orig_cfg['mesh_min'] = self.mesh_min = (min_x, min_y)
         orig_cfg['mesh_max'] = self.mesh_max = (max_x, max_y)
 
-        pps = parse_pair(config, ('mesh_pps', '2'), check=False,
-                         cast=int, minval=0)
+        pps = parse_config_pair(config, 'mesh_pps', 2, minval=0)
         orig_cfg['mesh_x_pps'] = mesh_cfg['mesh_x_pps'] = pps[0]
         orig_cfg['mesh_y_pps'] = mesh_cfg['mesh_y_pps'] = pps[1]
         orig_cfg['algo'] = mesh_cfg['algo'] = \
@@ -418,12 +446,11 @@ class BedMeshCalibrate:
         orig_cfg['tension'] = mesh_cfg['tension'] = config.getfloat(
             'bicubic_tension', .2, minval=0., maxval=2.)
         for i in list(range(1, 100, 1)):
-            min_opt = "faulty_region_%d_min" % (i,)
-            max_opt = "faulty_region_%d_max" % (i,)
-            if config.get(min_opt, None) is None:
+            start = config.getfloatlist("faulty_region_%d_min" % (i,), None,
+                                        count=2)
+            if start is None:
                 break
-            start = parse_pair(config, (min_opt,))
-            end = parse_pair(config, (max_opt,))
+            end = config.getfloatlist("faulty_region_%d_max" % (i,), count=2)
             # Validate the corners.  If necessary reorganize them.
             # c1 = min point, c3 = max point
             #  c4 ---- c3
@@ -443,14 +470,16 @@ class BedMeshCalibrate:
                         raise config.error(
                             "bed_mesh: Existing faulty_region_%d %s overlaps "
                             "added faulty_region_%d %s"
-                            % (j, repr([prev_c1, prev_c3]), i, repr([c1, c3])))
+                            % (j+1, repr([prev_c1, prev_c3]),
+                               i, repr([c1, c3])))
                 # Validate that no new corner is within an existing region
                 for coord in [c1, c2, c3, c4]:
                     if within(coord, prev_c1, prev_c3):
                         raise config.error(
                             "bed_mesh: Added faulty_region_%d %s overlaps "
                             "existing faulty_region_%d %s"
-                            % (i, repr([c1, c3]), j, repr([prev_c1, prev_c3])))
+                            % (i, repr([c1, c3]),
+                               j+1, repr([prev_c1, prev_c3])))
             self.faulty_regions.append((c1, c3))
         self._verify_algorithm(config.error)
     def _verify_algorithm(self, error):
@@ -515,7 +544,7 @@ class BedMeshCalibrate:
                 self.mesh_max = (self.radius, self.radius)
                 need_cfg_update = True
             if "MESH_ORIGIN" in params:
-                self.origin = parse_pair(gcmd, ('MESH_ORIGIN',))
+                self.origin = parse_gcmd_coord(gcmd, 'MESH_ORIGIN')
                 need_cfg_update = True
             if "ROUND_PROBE_COUNT" in params:
                 cnt = gcmd.get_int('ROUND_PROBE_COUNT', minval=3)
@@ -524,14 +553,13 @@ class BedMeshCalibrate:
                 need_cfg_update = True
         else:
             if "MESH_MIN" in params:
-                self.mesh_min = parse_pair(gcmd, ('MESH_MIN',))
+                self.mesh_min = parse_gcmd_coord(gcmd, 'MESH_MIN')
                 need_cfg_update = True
             if "MESH_MAX" in params:
-                self.mesh_max = parse_pair(gcmd, ('MESH_MAX',))
+                self.mesh_max = parse_gcmd_coord(gcmd, 'MESH_MAX')
                 need_cfg_update = True
             if "PROBE_COUNT" in params:
-                x_cnt, y_cnt = parse_pair(
-                    gcmd, ('PROBE_COUNT',), check=False, cast=int, minval=3)
+                x_cnt, y_cnt = parse_gcmd_pair(gcmd, 'PROBE_COUNT', minval=3)
                 self.mesh_config['x_count'] = x_cnt
                 self.mesh_config['y_count'] = y_cnt
                 need_cfg_update = True
@@ -571,6 +599,9 @@ class BedMeshCalibrate:
         return adj_pts
     cmd_BED_MESH_CALIBRATE_help = "Perform Mesh Bed Leveling"
     def cmd_BED_MESH_CALIBRATE(self, gcmd):
+        self._profile_name = gcmd.get('PROFILE', "default")
+        if not self._profile_name.strip():
+            raise gcmd.error("Value for parameter 'PROFILE' must be specified")
         self.bedmesh.set_mesh(None)
         self.update_config(gcmd)
         self.probe_helper.start_probe(gcmd)
@@ -691,7 +722,7 @@ class BedMeshCalibrate:
             raise self.gcode.error(str(e))
         self.bedmesh.set_mesh(z_mesh)
         self.gcode.respond_info("Mesh Bed Leveling Complete")
-        self.bedmesh.save_profile("default")
+        self.bedmesh.save_profile(self._profile_name)
     def _dump_points(self, probed_pts, corrected_pts, offsets):
         # logs generated points with offset applied, points received
         # from the finalize callback, and the list of corrected points
@@ -1090,10 +1121,8 @@ class ProfileManager:
                 self.incompatible_profiles.append(name)
                 continue
             self.profiles[name] = {}
-            z_values = profile.get('points').split('\n')
-            self.profiles[name]['points'] = \
-                [[float(pt.strip()) for pt in line.split(',')]
-                    for line in z_values if line.strip()]
+            zvals = profile.getlists('points', seps=(',', '\n'), parser=float)
+            self.profiles[name]['points'] = zvals
             self.profiles[name]['mesh_params'] = params = \
                 collections.OrderedDict()
             for key, t in PROFILE_OPTIONS.items():
@@ -1107,10 +1136,8 @@ class ProfileManager:
         self.gcode.register_command(
             'BED_MESH_PROFILE', self.cmd_BED_MESH_PROFILE,
             desc=self.cmd_BED_MESH_PROFILE_help)
-    def initialize(self):
-        self._check_incompatible_profiles()
-        if "default" in self.profiles:
-            self.load_profile("default")
+    def get_profiles(self):
+        return self.profiles
     def get_current_profile(self):
         return self.current_profile
     def _check_incompatible_profiles(self):
@@ -1147,10 +1174,14 @@ class ProfileManager:
         for key, value in mesh_params.items():
             configfile.set(cfg_name, key, value)
         # save copy in local storage
-        self.profiles[prof_name] = profile = {}
+        # ensure any self.profiles returned as status remains immutable
+        profiles = dict(self.profiles)
+        profiles[prof_name] = profile = {}
         profile['points'] = probed_matrix
         profile['mesh_params'] = collections.OrderedDict(mesh_params)
+        self.profiles = profiles
         self.current_profile = prof_name
+        self.bedmesh.update_status()
         self.gcode.respond_info(
             "Bed Mesh state has been saved to profile [%s]\n"
             "for the current session.  The SAVE_CONFIG command will\n"
@@ -1174,7 +1205,10 @@ class ProfileManager:
         if prof_name in self.profiles:
             configfile = self.printer.lookup_object('configfile')
             configfile.remove_section('bed_mesh ' + prof_name)
-            del self.profiles[prof_name]
+            profiles = dict(self.profiles)
+            del profiles[prof_name]
+            self.profiles = profiles
+            self.bedmesh.update_status()
             self.gcode.respond_info(
                 "Profile [%s] removed from storage for this session.\n"
                 "The SAVE_CONFIG command will update the printer\n"
@@ -1192,6 +1226,10 @@ class ProfileManager:
         for key in options:
             name = gcmd.get(key, None)
             if name is not None:
+                if not name.strip():
+                    raise gcmd.error(
+                        "Value for parameter '%s' must be specified" % (key)
+                    )
                 if name == "default" and key == 'SAVE':
                     gcmd.respond_info(
                         "Profile 'default' is reserved, please choose"

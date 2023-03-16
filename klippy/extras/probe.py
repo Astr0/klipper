@@ -27,6 +27,7 @@ class PrinterProbe:
         self.multi_probe_pending = False
         self.last_state = False
         self.last_z_result = 0.
+        self.gcode_move = self.printer.load_object(config, "gcode_move")
         # Infer Z position to move to during a probe
         if config.has_section('stepper_z'):
             zconfig = config.getsection('stepper_z')
@@ -70,6 +71,9 @@ class PrinterProbe:
                                     desc=self.cmd_PROBE_CALIBRATE_help)
         self.gcode.register_command('PROBE_ACCURACY', self.cmd_PROBE_ACCURACY,
                                     desc=self.cmd_PROBE_ACCURACY_help)
+        self.gcode.register_command('Z_OFFSET_APPLY_PROBE',
+                                    self.cmd_Z_OFFSET_APPLY_PROBE,
+                                    desc=self.cmd_Z_OFFSET_APPLY_PROBE_help)
     def _handle_homing_move_begin(self, hmove):
         if self.mcu_probe in hmove.get_mcu_endstops():
             self.mcu_probe.probe_prepare(hmove)
@@ -191,7 +195,8 @@ class PrinterProbe:
         self.last_state = res
         gcmd.respond_info("probe: %s" % (["open", "TRIGGERED"][not not res],))
     def get_status(self, eventtime):
-        return {'last_query': self.last_state,
+        return {'name': self.name,
+                'last_query': self.last_state,
                 'last_z_result': self.last_z_result}
     cmd_PROBE_ACCURACY_help = "Probe Z-height accuracy at current XY position"
     def cmd_PROBE_ACCURACY(self, gcmd):
@@ -262,6 +267,20 @@ class PrinterProbe:
         # Start manual probe
         manual_probe.ManualProbeHelper(self.printer, gcmd,
                                        self.probe_calibrate_finalize)
+    def cmd_Z_OFFSET_APPLY_PROBE(self,gcmd):
+        offset = self.gcode_move.get_status()['homing_origin'].z
+        configfile = self.printer.lookup_object('configfile')
+        if offset == 0:
+            self.gcode.respond_info("Nothing to do: Z Offset is 0")
+        else:
+            new_calibrate = self.z_offset - offset
+            self.gcode.respond_info(
+                "%s: z_offset: %.3f\n"
+                "The SAVE_CONFIG command will update the printer config file\n"
+                "with the above and restart the printer."
+                % (self.name, new_calibrate))
+            configfile.set(self.name, 'z_offset', "%.3f" % (new_calibrate,))
+    cmd_Z_OFFSET_APPLY_PROBE_help = "Adjust the probe's z_offset"
 
 # Endstop wrapper that enables probe specific features
 class ProbeEndstopWrapper:
@@ -342,15 +361,10 @@ class ProbePointsHelper:
         self.gcode = self.printer.lookup_object('gcode')
         # Read config settings
         if default_points is None or config.get('points', None) is not None:
-            points = config.get('points').split('\n')
-            try:
-                points = [line.split(',', 1) for line in points if line.strip()]
-                self.probe_points = [(float(p[0].strip()), float(p[1].strip()))
-                                     for p in points]
-            except:
-                raise config.error("Unable to parse probe points in %s" % (
-                    self.name))
-        self.horizontal_move_z = config.getfloat('horizontal_move_z', 5.)
+            self.probe_points = config.getlists('points', seps=(',', '\n'),
+                                                parser=float, count=2)
+        def_move_z = config.getfloat('horizontal_move_z', 5.)
+        self.default_horizontal_move_z = def_move_z
         self.speed = config.getfloat('speed', 50., above=0.)
         self.use_offsets = False
         # Internal probing state
@@ -396,6 +410,9 @@ class ProbePointsHelper:
         probe = self.printer.lookup_object('probe', None)
         method = gcmd.get('METHOD', 'automatic').lower()
         self.results = []
+        def_move_z = self.default_horizontal_move_z
+        self.horizontal_move_z = gcmd.get_float('HORIZONTAL_MOVE_Z',
+                                                def_move_z)
         if probe is None or method != 'automatic':
             # Manual probe
             self.lift_speed = self.speed

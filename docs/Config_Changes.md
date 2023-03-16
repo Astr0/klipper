@@ -1,10 +1,151 @@
+# Configuration Changes
+
 This document covers recent software changes to the config file that
 are not backwards compatible. It is a good idea to review this
 document when upgrading the Klipper software.
 
 All dates in this document are approximate.
 
-# Changes
+## Changes
+
+20230304: The `SET_TMC_CURRENT` command now properly adjusts the globalscaler
+register for drivers that have it. This removes a limitation where on tmc5160,
+the currents could not be raised higher with `SET_TMC_CURRENT` than the
+`run_current` value set in the config file.
+However, this has a side effect: After running `SET_TMC_CURRENT`, the stepper
+must be held at standstill for >130ms in case StealthChop2 is used so that the
+AT#1 calibration gets executed by the driver.
+
+20230202: The format of the `printer.screws_tilt_adjust` status
+information has changed. The information is now stored as a dictionary of
+screws with the resulting measurements. See the
+[status reference](Status_Reference.md#screws_tilt_adjust) for details.
+
+20230201:  The `[bed_mesh]` module no longer loads the `default` profile
+on startup.  It is recommended that users who use the `default` profile
+add `BED_MESH_PROFILE LOAD=default` to their `START_PRINT` macro (or
+to their slicer's "Start G-Code" configuration when applicable).
+
+20230103: It is now possible with the flash-sdcard.sh script to flash
+both variants of the Bigtreetech SKR-2, STM32F407 and STM32F429.
+This means that the original tag of btt-skr2 now has changed to either
+btt-skr-2-f407 or btt-skr-2-f429.
+
+20221128: Klipper v0.11.0 released.
+
+20221122: Previously, with safe_z_home, it was possible that the
+z_hop after the g28 homing would go in the negative z direction.
+Now, a z_hop is performed after g28 only if it results in a positive
+hop, mirroring the behavior of the z_hop that occurs before
+the g28 homing.
+
+20220616: It was previously possible to flash an rp2040 in bootloader
+mode by running `make flash FLASH_DEVICE=first`. The equivalent
+command is now `make flash FLASH_DEVICE=2e8a:0003`.
+
+20220612: The rp2040 micro-controller now has a workaround for the
+"rp2040-e5" USB errata. This should make initial USB connections more
+reliable. However, it may result in a change in behavior for the
+gpio15 pin. It is unlikely the gpio15 behavior change will be
+noticeable.
+
+20220407: The temperature_fan `pid_integral_max` config option has
+been removed (it was deprecated on 20210612).
+
+20220407: The default color order for pca9632 LEDs is now "RGBW". Add
+an explicit `color_order: RBGW` setting to the pca9632 config section
+to obtain the previous behavior.
+
+20220330: The format of the `printer.neopixel.color_data` status
+information for neopixel and dotstar modules has changed. The
+information is now stored as a list of color lists (instead of a list
+of dictionaries). See the [status reference](Status_Reference.md#led)
+for details.
+
+20220307: `M73` will no longer set print progress to 0 if `P` is missing.
+
+20220304: There is no longer a default for the `extruder` parameter of
+[extruder_stepper](Config_Reference.md#extruder_stepper) config
+sections. If desired, specify `extruder: extruder` explicitly to
+associate the stepper motor with the "extruder" motion queue at
+startup.
+
+20220210: The `SYNC_STEPPER_TO_EXTRUDER` command is deprecated; the
+`SET_EXTRUDER_STEP_DISTANCE` command is deprecated; the
+[extruder](Config_Reference.md#extruder) `shared_heater` config option
+is deprecated. These features will be removed in the near future.
+Replace `SET_EXTRUDER_STEP_DISTANCE` with
+`SET_EXTRUDER_ROTATION_DISTANCE`. Replace `SYNC_STEPPER_TO_EXTRUDER`
+with `SYNC_EXTRUDER_MOTION`. Replace extruder config sections using
+`shared_heater` with
+[extruder_stepper](Config_Reference.md#extruder_stepper) config
+sections and update any activation macros to use
+[SYNC_EXTRUDER_MOTION](G-Codes.md#sync_extruder_motion).
+
+20220116: The tmc2130, tmc2208, tmc2209, and tmc2660 `run_current`
+calculation code has changed. For some `run_current` settings the
+drivers may now be configured differently. This new configuration
+should be more accurate, but it may invalidate previous tmc driver
+tuning.
+
+20211230: Scripts to tune input shaper (`scripts/calibrate_shaper.py`
+and `scripts/graph_accelerometer.py`) were migrated to use Python3
+by default. As a result, users must install Python3 versions of certain
+packages (e.g. `sudo apt install python3-numpy python3-matplotlib`) to
+continue using these scripts. For more details, refer to
+[Software installation](Measuring_Resonances.md#software-installation).
+Alternatively, users can temporarily force the execution of these scripts
+under Python 2 by explicitly calling Python2 interpretor in the console:
+`python2 ~/klipper/scripts/calibrate_shaper.py ...`
+
+20211110: The "NTC 100K beta 3950" temperature sensor is deprecated.
+This sensor will be removed in the near future.  Most users will find
+the "Generic 3950" temperature sensor more accurate.  To continue to
+use the older (typically less accurate) definition, define a custom
+[thermistor](Config_Reference.md#thermistor) with `temperature1: 25`,
+`resistance1: 100000`, and `beta: 3950`.
+
+20211104: The "step pulse duration" option in "make menuconfig" has
+been removed. The default step duration for TMC drivers configured in
+UART or SPI mode is now 100ns. A new `step_pulse_duration` setting in
+the [stepper config section](Config_Reference.md#stepper) should be
+set for all steppers that need a custom pulse duration.
+
+20211102: Several deprecated features have been removed.  The stepper
+`step_distance` option has been removed (deprecated on 20201222).  The
+`rpi_temperature` sensor alias has been removed (deprecated on
+20210219).  The mcu `pin_map` option has been removed (deprecated on
+20210325).  The gcode_macro `default_parameter_<name>` and macro
+access to command parameters other than via the `params`
+pseudo-variable has been removed (deprecated on 20210503).  The heater
+`pid_integral_max` option has been removed (deprecated on 20210612).
+
+20210929: Klipper v0.10.0 released.
+
+20210903: The default [`smooth_time`](Config_Reference.md#extruder)
+for heaters has changed to 1 second (from 2 seconds).  For most
+printers this will result in more stable temperature control.
+
+20210830: The default adxl345 name is now "adxl345".  The default CHIP
+parameter for the `ACCELEROMETER_MEASURE` and `ACCELEROMETER_QUERY` is
+now also "adxl345".
+
+20210830: The adxl345 ACCELEROMETER_MEASURE command no longer supports
+a RATE parameter.  To alter the query rate, update the printer.cfg
+file and issue a RESTART command.
+
+20210821: Several config settings in `printer.configfile.settings`
+will now be reported as lists instead of raw strings.  If the actual
+raw string is desired, use `printer.configfile.config` instead.
+
+20210819: In some cases, a `G28` homing move may end in a position
+that is nominally outside the valid movement range.  In rare
+situations this may result in confusing "Move out of range" errors
+after homing.  If this occurs, change your start scripts to move the
+toolhead to a valid position immediately after homing.
+
+20210814: The analog only pseudo-pins on the atmega168 and atmega328
+have been renamed from PE0/PE1 to PE2/PE3.
 
 20210720: A controller_fan section now monitors all stepper motors by
 default (not just the kinematic stepper motors).  If the previous
@@ -21,9 +162,11 @@ the near future.
 20210503: The gcode_macro `default_parameter_<name>` config option is
 deprecated.  Use the `params` pseudo-variable to access macro
 parameters.  Other methods for accessing macro parameters will be
-removed in the near future.  See the
-[Command Templates document](Command_Templates.md#macro-parameters)
-for examples.
+removed in the near future.  Most users can replace a
+`default_parameter_NAME: VALUE` config option with a line like the
+following in the start of the macro: ` {% set NAME =
+params.NAME|default(VALUE)|float %}`.  See the [Command Templates
+document](Command_Templates.md#macro-parameters) for examples.
 
 20210430: The SET_VELOCITY_LIMIT (and M204) command may now set a
 velocity, acceleration, and square_corner_velocity larger than the
@@ -256,7 +399,7 @@ that command.
 
 20190628: All configuration options have been removed from the
 [skew_correction] section.  Configuration for skew_correction
-is now done via the SET_SKEW gcode.  See skew_correction.md
+is now done via the SET_SKEW gcode.  See [Skew Correction](Skew_Correction.md)
 for recommended usage.
 
 20190607: The "variable_X" parameters of gcode_macro (along with the

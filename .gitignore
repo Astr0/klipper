@@ -6,3 +6,4 @@ out
 klippy/.version
 database*
 logs*
+gcodes

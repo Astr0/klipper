@@ -4,7 +4,5 @@ out
 .config
 .config.old
 klippy/.version
-database
-database2
-logs
-logs2
+database*
+logs*

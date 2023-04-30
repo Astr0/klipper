@@ -1,0 +1,156 @@
+version: "3.6"
+services:
+  klipper:
+    image: dimalo/klipper-moonraker
+    build:
+      dockerfile: ./klipper/Dockerfile
+      context: .
+    # if klipper cannot connect to the printer check permissions on rpi then add the group here
+    # group_add:
+    #   - "996"
+    #   - "998"
+    cap_add:
+      - SYS_NICE
+    container_name: klipper
+    ports:
+      - 7125:7125
+    restart: unless-stopped
+    group_add:
+      - dialout
+    volumes:
+      - ./gcodes:/home/klippy/.config/gcodes:rw
+      - ./database:/home/klippy/.config/database:rw
+      - ./custom/moonraker.conf:/home/klippy/.config/moonraker.conf
+      - ./custom/moonraker.ini:/etc/supervisord/moonraker.ini
+      - ./custom/klipper.ini:/etc/supervisord/klipper.ini
+      - ./custom:/home/klippy/.config/config
+      - ./custom/ender3.cfg:/home/klippy/.config/config/printer.cfg
+      # - ./logs:/var/log/klipper:rw
+    devices:
+      - /dev/serial/by-path/ender3:/dev/ttyACM0
+      # - /dev/serial/by-id/usb-Klipper_lpc1768_1320011048104AAF87AC675DC52000F5-if00:/dev/ttyACM0
+
+  klipper2:
+    image: dimalo/klipper-moonraker
+    build:
+      dockerfile: ./klipper/Dockerfile
+      context: .
+    cap_add:
+      - SYS_NICE
+    container_name: klipper2
+    ports:
+      - 7126:7125
+    restart: unless-stopped
+    group_add:
+      - dialout
+    volumes:
+      - ./gcodes:/home/klippy/.config/gcodes:rw
+      - ./database2:/home/klippy/.config/database:rw
+      - ./custom/moonraker.conf:/home/klippy/.config/moonraker.conf
+      - ./custom/moonraker.ini:/etc/supervisord/moonraker.ini
+      - ./custom/klipper.ini:/etc/supervisord/klipper.ini
+      - ./custom:/home/klippy/.config/config
+      - ./custom/sappy.cfg:/home/klippy/.config/config/printer.cfg
+      # - ./logs2:/var/log/klipper:rw
+    devices:
+      - /dev/serial/by-path/sappy:/dev/ttyACM0
+    # mount serial device - take care to grant sufficient permissions to the device: <host_dev>:<container_dev>
+    # put <container_dev> into your printer.cfg
+      # - /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0:/dev/ttyACM0
+
+  klipper3:
+    image: dimalo/klipper-moonraker
+    build:
+      dockerfile: ./klipper/Dockerfile
+      context: .
+    cap_add:
+      - SYS_NICE
+    container_name: klipper3
+    ports:
+      - 7127:7125
+    restart: unless-stopped
+    group_add:
+      - dialout
+    volumes:
+      - ./gcodes:/home/klippy/.config/gcodes:rw
+      - ./database3:/home/klippy/.config/database:rw
+      - ./custom/moonraker.conf:/home/klippy/.config/moonraker.conf
+      - ./custom/moonraker.ini:/etc/supervisord/moonraker.ini
+      - ./custom/klipper.ini:/etc/supervisord/klipper.ini
+      - ./custom:/home/klippy/.config/config
+      - ./custom/ender3_v2.cfg:/home/klippy/.config/config/printer.cfg
+      # - ./logs2:/var/log/klipper:rw
+    devices:
+      - /dev/serial/by-path/ender3v2a:/dev/ttyACM0
+      # - /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0:/dev/ttyACM0
+
+  klipper4:
+    image: dimalo/klipper-moonraker
+    build:
+      dockerfile: ./klipper/Dockerfile
+      context: .
+    cap_add:
+      - SYS_NICE
+    container_name: klipper4
+    ports:
+      - 7128:7125
+    restart: unless-stopped
+    group_add:
+      - dialout
+    volumes:
+      - ./gcodes:/home/klippy/.config/gcodes:rw
+      - ./database4:/home/klippy/.config/database:rw
+      - ./custom/moonraker.conf:/home/klippy/.config/moonraker.conf
+      - ./custom/moonraker.ini:/etc/supervisord/moonraker.ini
+      - ./custom/klipper.ini:/etc/supervisord/klipper.ini
+      - ./custom:/home/klippy/.config/config
+      - ./custom/ender3_v2.cfg:/home/klippy/.config/config/printer.cfg
+      # - ./logs2:/var/log/klipper:rw
+    devices:
+      - /dev/serial/by-path/ender3v2b:/dev/ttyACM0
+      # - /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0:/dev/ttyACM0
+
+  mjpg-streamer:
+   restart: unless-stopped
+   image: patsoffice/mjpg-streamer
+   devices:
+     - /dev/video0
+   ports:
+     - 8080:8080
+   environment:
+     - MJPEG_STREAMER_INPUT="-y -n -r 1280x720"
+
+  fluidd:
+    image: ghcr.io/fluidd-core/fluidd:sha-44d94e65de77e9d3e273b3a86ffd64727b624ea6
+    # build:
+    #   dockerfile: Dockerfile
+    #   context: frontend
+    restart: unless-stopped
+    container_name: fluidd
+    ports:
+      - 80:80
+    #depends_on: 
+    #  - klipper
+      # - klipper_another_printer
+    #links:
+    #  - klipper:klipper
+      # - klipper_another_printer:klipper_another_printer
+
+  # mainsail:
+  #   image: dimalo/mainsail
+  #   build:
+  #     dockerfile: Dockerfile
+  #     context: frontend
+  #     args:
+  #       FRONTEND_ZIP_URL: https://github.com/meteyou/mainsail/releases/latest/download/mainsail.zip
+  #   container_name: mainsail
+  #   ports:
+  #     - 8011:80
+  #   depends_on: 
+  #     - klipper
+  #     # - klipper_another_printer
+  #   links:
+  #     - klipper:klipper
+  #     # - klipper_another_printer:klipper_another_printer
+
+

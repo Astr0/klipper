@@ -4,7 +4,3 @@ out
 .config
 .config.old
 klippy/.version
-database*
-logs*
-gcodes
-docker-compose.yml

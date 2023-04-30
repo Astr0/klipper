@@ -7,3 +7,4 @@ klippy/.version
 database*
 logs*
 gcodes
+docker-compose.yml

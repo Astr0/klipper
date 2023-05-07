@@ -72,7 +72,7 @@ services:
     group_add:
       - dialout
     volumes:
-      - ./gcodes/ender3v2:/home/klippy/.config/gcodes:rw
+      - ./gcodes/ender3:/home/klippy/.config/gcodes:rw
       - ./database3:/home/klippy/.config/database:rw
       - ./custom/moonraker.conf:/home/klippy/.config/moonraker.conf
       - ./custom/moonraker.ini:/etc/supervisord/moonraker.ini
@@ -98,7 +98,7 @@ services:
     group_add:
       - dialout
     volumes:
-      - ./gcodes/ender3v2:/home/klippy/.config/gcodes:rw
+      - ./gcodes/ender3:/home/klippy/.config/gcodes:rw
       - ./database4:/home/klippy/.config/database:rw
       - ./custom/moonraker.conf:/home/klippy/.config/moonraker.conf
       - ./custom/moonraker.ini:/etc/supervisord/moonraker.ini

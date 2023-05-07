@@ -78,7 +78,7 @@ services:
       - ./custom/moonraker.ini:/etc/supervisord/moonraker.ini
       - ./custom/klipper.ini:/etc/supervisord/klipper.ini
       - ./custom:/home/klippy/.config/config
-      - ./custom/ender3_v2.cfg:/home/klippy/.config/config/printer.cfg
+      - ./custom/ender3_v2_bmg.cfg:/home/klippy/.config/config/printer.cfg
       # - ./logs2:/var/log/klipper:rw
     devices:
       - /dev/serial/by-path/ender3v2a:/dev/ttyACM0
@@ -104,7 +104,7 @@ services:
       - ./custom/moonraker.ini:/etc/supervisord/moonraker.ini
       - ./custom/klipper.ini:/etc/supervisord/klipper.ini
       - ./custom:/home/klippy/.config/config
-      - ./custom/ender3_v2.cfg:/home/klippy/.config/config/printer.cfg
+      - ./custom/ender3_v2_direct.cfg:/home/klippy/.config/config/printer.cfg
       # - ./logs2:/var/log/klipper:rw
     devices:
       - /dev/serial/by-path/ender3v2b:/dev/ttyACM0
